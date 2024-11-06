@@ -22,7 +22,7 @@ def main(is_semi_supervised, trial_num):
     x_tilde = x_all[labeled_idxs, :]   # Labeled examples
     z_tilde = z_all[labeled_idxs, :]   # Corresponding labels
     x = x_all[~labeled_idxs, :]        # Unlabeled examples
-    k=K
+    
     # *** START CODE HERE ***
     # (1) Initialize mu and sigma by splitting the n_examples data points uniformly at random
     # into K groups, then calculating the sample mean and covariance for each group
@@ -47,12 +47,12 @@ def main(is_semi_supervised, trial_num):
             group_cov = np.cov(group_data, rowvar=False)  # Set rowvar=False for column-wise data
             sigma.append(group_cov)
         return mu, sigma
-    mu, sigma = initialize_mu_sigma(x, k)
-    phi = np.ones(k)/k
+    mu, sigma = initialize_mu_sigma(x, K)
+    phi = np.ones(K)/K
 
     # (3) Initialize the w values to place equal probability on each Gaussian
     # w should be a numpy array of shape (m, K)
-    w = np.ones((len(x), k))/k
+    w = np.ones((len(x), K))/K
     # *** END CODE HERE ***
 
     if is_semi_supervised:
@@ -100,8 +100,7 @@ def log_likelihood(X, mu, sigma, phi):
 
 #ll = log_likelihood_semi(x,x_tilde, z, mu, w_tilde, sigma, phi, alpha)
 def log_likelihood_semi(X,x_tilde, z, mu, sigma, phi, alpha):
-    ll = log_likelihood(X, mu, sigma, phi)  # Log-likelihood
-    #ll = sum_x[log(sum_z[p(x|z) * p(z)])]
+    ll = log_likelihood(X, mu, sigma, phi)  
     n_tilde_samples, n_tilde_features = x_tilde.shape
     # Loop over each data point
     ll_two = 0.0
@@ -187,39 +186,36 @@ def run_em(x, w, phi, mu, sigma):
 
 
 def run_semi_supervised_em(x, x_tilde, z, w, phi, mu, sigma):
-    """Problem 3(e): Semi-Supervised EM Algorithm.
-
-    See inline comments for instructions.
-
+    """
     Args:
-        x: Design matrix of unlabeled examples of shape (n_examples_unobs, dim).
-        x_tilde: Design matrix of labeled examples of shape (n_examples_obs, dim).
-        z_tilde: Array of labels of shape (n_examples_obs, 1).
-        w: Initial weight matrix of shape (n_examples, k).
+        x: Design matrix of unlabeled examples of shape (m, n).
+        x_tilde: Design matrix of labeled examples of shape (m_tilde, n).
+        z: Array of labels of shape (m_tilde, 1).
+        w: Initial weight matrix of shape (m, k).
         phi: Initial mixture prior, of shape (k,).
-        mu: Initial cluster means, list of k arrays of shape (dim,).
-        sigma: Initial cluster covariances, list of k arrays of shape (dim, dim).
+        mu: Initial cluster means, list of k arrays of shape (n,).
+        sigma: Initial cluster covariances, list of k arrays of shape (n, n).
 
     Returns:
-        Updated weight matrix of shape (n_examples, k) resulting from semi-supervised EM algorithm.
+        Updated weight matrix of shape (m, k) resulting from semi-supervised EM algorithm.
         More specifically, w[i, j] should contain the probability of
         example x^(i) belonging to the j-th Gaussian in the mixture.
     """
-    # No need to change any of these parameters
+    n_samples, n_features=x.shape
+    n_tilde = x_tilde.shape[0]
     alpha = 20.  # Weight for the labeled examples
     eps = 1e-3   # Convergence threshold
     max_iter = 1000
-    n_samples, n_features = x.shape
-    n_tilde=x_tilde.shape[0]
-    #n_tilde
+
     # Stop when the absolute change in log-likelihood is < eps
-    # See below for explanation of the convergence criterion
     it = 0
     ll = prev_ll = None
+
     while it < max_iter and (prev_ll is None or np.abs(ll - prev_ll) >= eps):
-        prev_ll = ll
-        # *** START CODE HERE ***
         # (1) E-step: Update your estimates in w
+
+        prev_ll = ll
+
         for i in range(n_samples):
             for j in range(K):
                 diff = x[i] - mu[j]
@@ -239,35 +235,23 @@ def run_semi_supervised_em(x, x_tilde, z, w, phi, mu, sigma):
         for i in range(n_tilde):
             w_tilde[i, int(z[i])] = 1  # Set responsibility for the true label
 
-        # Normalize `w_tilde` for labeled examples (each row should sum to 1)
         w_tilde = w_tilde / np.sum(w_tilde, axis=1, keepdims=True)
-        
 
         # (2) M-step: Update the model parameters phi, mu, and sigma
+        for j in range(K):
+            mu[j] = (w[:, j].dot(x) + alpha * w_tilde[:, j].dot(x_tilde)) / ((w[:, j].sum() + alpha * w_tilde[:, j].sum()))
+            sigma[j] = (np.sum([w[i][j] * np.outer(x[i] - mu[j], x[i] - mu[j]) for i in range(n_samples)], axis=0) + alpha * np.sum([w_tilde[i][j] * np.outer(x_tilde[i] - mu[j], x_tilde[i] - mu[j]) for i in range(n_tilde)], axis=0)) / (np.sum([w[i][j] for i in range(n_samples)]) + alpha * np.sum([w_tilde[i][j] for i in range(n_tilde)]))
         phi = (w.sum(axis=0) + alpha * w_tilde.sum(axis=0))
         phi = phi / phi.sum()
-        for j in range(K):
-            #print(K)
-            mu[j] = (np.sum([w[i][j] * x[i] for i in range(n_samples)]) + alpha * np.sum([w_tilde[i][j] * x_tilde[i] for i in range(n_tilde)])) / (np.sum([w[i][j] for i in range(n_samples)]) + alpha * np.sum([w_tilde[i][j] for i in range(n_tilde)]))
-            sigma[j] = (np.sum([w[i][j] * np.outer(x[i] - mu[j], x[i] - mu[j]) for i in range(n_samples)], axis=0) + alpha * np.sum([w_tilde[i][j] * np.outer(x_tilde[i] - mu[j], x_tilde[i] - mu[j]) for i in range(n_tilde)], axis=0)) / (np.sum([w[i][j] for i in range(n_samples)]) + alpha * np.sum([w_tilde[i][j] for i in range(n_tilde)]))
 
-        # *** Log-likelihood calculation ***
+        # compute log likelihood
         
         # (3) Compute the log-likelihood of the data to check for convergence.
-        # Hint: Make sure to include alpha in your calculation of ll.
-        # Hint: For debugging, recall part (a). We showed that ll should be monotonically increasing.
-        
-        # compute log likelihood
-        ll = log_likelihood_semi(x,x_tilde, z, mu, sigma, phi, alpha)
+        ll = log_likelihood_semi(x, x_tilde, z, mu, sigma, phi, alpha)#np.sum(np.log(p_x)) + alpha * np.sum(np.log(p_x_z))
         it += 1
-        print(f"Iteration {it}: Log-Likelihood = {ll}")
-        # *** END CODE HERE ***
+        print('Iter {}, Likelihood {}'.format(it, ll))
+
     return w
-
-# *** START CODE HERE ***
-# Helper functions
-
-# *** END CODE HERE ***
 
 
 def plot_gmm_preds(x, z, with_supervision, plot_id):
